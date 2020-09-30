@@ -2,3 +2,8 @@
 */__pycache__/
 .idea
 */data/
+bert/base_bert/model/bert_config.json
+bert/base_bert/model/bert_model.ckpt.data-00000-of-00001
+bert/base_bert/model/bert_model.ckpt.index
+bert/base_bert/model/bert_model.ckpt.meta
+bert/base_bert/model/vocab.txt

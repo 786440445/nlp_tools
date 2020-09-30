@@ -14,7 +14,7 @@ import csv
 import collections
 import tensorflow as tf
 
-from bert import tokenization
+from bert.base_bert import tokenization
 
 
 class InputExample(object):

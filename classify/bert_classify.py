@@ -3,12 +3,9 @@ home_dir = os.getcwd()
 sys.path.append(home_dir)
 
 import tensorflow as tf
-import numpy as np
 from datetime import datetime
 
-from bert import modeling
-from bert import optimization
-from bert.data_loader import *
+from bert.base_bert import modeling
 from classify.data_loader import *
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
