@@ -16,7 +16,6 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 processors = {"cnews": CnewsProcessor}
 
 tf.logging.set_verbosity(tf.logging.INFO)
-from classify.train import *
 
 class BertModel():
     def __init__(self, bert_config, num_labels, seq_length, init_checkpoint):
@@ -71,20 +70,19 @@ class BertModel():
             output_layer = tf.cond(self.is_training, lambda: apply_dropout_last_layer(output_layer),
                                    lambda: not_apply_dropout(output_layer))
             self.logits = tf.layers.dense(output_layer, self.num_labels, name='fc')
-            # self.y_pred_cls = tf.argmax(tf.nn.softmax(self.logits), 1, name="pred")
-            self.preds = tf.nn.sigmoid(self.logits, name='preds')
+            self.y_pred_cls = tf.argmax(tf.nn.softmax(self.logits), 1, name="pred")
 
-            # one_hot_labels = tf.one_hot(self.labels, depth=self.num_labels, dtype=tf.float32)
+            one_hot_labels = tf.one_hot(self.labels, depth=self.num_labels, dtype=tf.float32)
             cross_entropy = tf.nn.sigmoid_cross_entropy_with_logits(
-                logits=self.logits, labels=tf.cast(self.labels, tf.float32))
+                logits=self.logits, labels=tf.cast(one_hot_labels))
             self.loss = tf.reduce_mean(cross_entropy, name="loss")
             self.optim = tf.train.AdamOptimizer(
                 learning_rate=self.learning_rate).minimize(self.loss)
 
-        # with tf.name_scope("accuracy"):
+        with tf.name_scope("accuracy"):
             # 准确率
-            # correct_pred = tf.equal(tf.argmax(one_hot_labels, 1), self.y_pred_cls)
-            # self.acc = tf.reduce_mean(tf.cast(correct_pred, tf.float32), name="acc")
+            correct_pred = tf.equal(tf.argmax(one_hot_labels, 1), self.y_pred_cls)
+            self.acc = tf.reduce_mean(tf.cast(correct_pred, tf.float32), name="acc")
 
 
 def make_tf_record(output_dir, data_train, data_test, vocab_file):
@@ -97,22 +95,14 @@ def make_tf_record(output_dir, data_train, data_test, vocab_file):
     eval_file = os.path.join(output_dir, "eval.tf_record")
 
     # save data to tf_record
-    # train_examples = processor.get_train_examples(data_train)
-    train_examples = []
-    eval_examples = []
-    for seq, label, id in zip(data_train[0], data_train[1], data_train[2]):
-        train_examples.append(InputExample(guid=id, text_a=seq, text_b=None, label=label))
-    for seq, label, id in zip(data_test[0], data_test[1], data_test[2]):
-        eval_examples.append(InputExample(guid=id, text_a=seq, text_b=None, label=label))
-
+    train_examples = processor.get_train_examples(data_train)
     file_based_convert_examples_to_features(
         train_examples, label_list, max_seq_length, tokenizer, train_file)
 
     # eval data
-    # eval_examples = processor.get_dev_examples(data_test)
+    eval_examples = processor.get_dev_examples(data_test)
     file_based_convert_examples_to_features(
         eval_examples, label_list, max_seq_length, tokenizer, eval_file)
-
     del train_examples, eval_examples
 
 
@@ -168,17 +158,16 @@ def evaluate(sess, model):
     """
     评估 val data 的准确率和损失
     """
-    y_pred = []
-    y_target = []
+
     # dev data
-    test_record = tf.data.TFRecordDataset("classify/model/bert/eval.tf_record")
+    test_record = tf.data.TFRecordDataset("./model/bert/eval.tf_record")
     test_data = read_data(test_record, train_batch_size, False, 3)
     test_iterator = test_data.make_one_shot_iterator()
     test_batch = test_iterator.get_next()
+
     data_nums = 0
     total_loss = 0.0
-    all_preds = []
-    all_labels = []
+    total_acc = 0.0
     while True:
         try:
             features = sess.run(test_batch)
@@ -188,71 +177,18 @@ def evaluate(sess, model):
                          model.labels: features["label_ids"],
                          model.is_training: False,
                          model.learning_rate: learning_rate}
-            all_labels.extend(features["label_ids"])
+
             batch_len = len(features["input_ids"])
             data_nums += batch_len
             # print(data_nums)
-            loss, preds = sess.run([model.loss, model.preds], feed_dict=feed_dict)
+            loss, acc = sess.run([model.loss, model.acc], feed_dict=feed_dict)
             total_loss += loss * batch_len
-            all_preds.extend(preds)
+            total_acc += acc * batch_len
         except Exception as e:
-            # print(e)
+            print(e)
             break
-    loss = total_loss / data_nums
-    y_batch_pred = get_logits_label(all_preds)
-    # print('y_batch_pred', y_batch_pred)
-    y_batch_target = get_target_label(all_labels)
-    # print('y_batch_target', y_batch_target)
-    y_pred.extend(y_batch_pred)
-    y_target.extend(y_batch_target)
 
-    count = 0
-    for pred, target in zip(y_pred, y_target):
-        if pred == target:
-            count += 1
-    acc = count / len(y_pred)
-
-    confuse_matrix = compute_confuse_matrix(y_target, y_pred)
-    f1_micro, f1_macro = compute_micro_macro(confuse_matrix)
-    # print(f1_micro, f1_macro)
-    f1_score = (f1_micro + f1_macro) / 2.0
-    return loss, f1_score, confuse_matrix, acc
-#
-# def evaluate(sess, model):
-#     """
-#     评估 val data 的准确率和损失
-#     """
-#
-#     # dev data
-#     test_record = tf.data.TFRecordDataset("./model/bert/eval.tf_record")
-#     test_data = read_data(test_record, train_batch_size, False, 3)
-#     test_iterator = test_data.make_one_shot_iterator()
-#     test_batch = test_iterator.get_next()
-#
-#     data_nums = 0
-#     total_loss = 0.0
-#     total_acc = 0.0
-#     while True:
-#         try:
-#             features = sess.run(test_batch)
-#             feed_dict = {model.input_ids: features["input_ids"],
-#                          model.input_mask: features["input_mask"],
-#                          model.segment_ids: features["segment_ids"],
-#                          model.labels: features["label_ids"],
-#                          model.is_training: False,
-#                          model.learning_rate: learning_rate}
-#
-#             batch_len = len(features["input_ids"])
-#             data_nums += batch_len
-#             # print(data_nums)
-#             loss, acc = sess.run([model.loss, model.acc], feed_dict=feed_dict)
-#             total_loss += loss * batch_len
-#             total_acc += acc * batch_len
-#         except Exception as e:
-#             print(e)
-#             break
-#
-#     return total_loss / data_nums, total_acc / data_nums
+    return total_loss / data_nums, total_acc / data_nums
 
 
 def main():
@@ -287,14 +223,9 @@ def main():
                     _, train_loss, logits, preds = sess.run([model.optim, model.loss, model.logits, model.preds],
                                                             feed_dict=feed_dict)
 
-                    y_batch_pred = get_logits_label(preds)
-                    for pred, label in zip(y_batch_pred, features["label_ids"]):
-                        if all(pred) == all(label):
-                            count += 1
-                    train_acc = count / (train_steps * len(preds))
                     if train_steps % 500 == 0:
-                        val_loss, val_f1, confuse_matrix, val_acc = evaluate(sess, model)
-                        print('val_loss: %.4f, acc: %.4f val_f1: %.4f' % (val_loss, val_acc, val_f1))
+                        val_loss, val_acc = evaluate(sess, model)
+                        print('val_loss: %.4f, acc: %.4f' % (val_loss, val_acc))
 
                     if val_acc > best_acc_val:
                         # 保存最好结果
