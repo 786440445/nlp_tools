@@ -34,7 +34,7 @@ iterator_train = dataset_train.make_initializable_iterator()
 next_element_train = iterator_train.get_next()
 
 dataset_eval = dataset.batch(FLAGS.batch_size)
-iterator_eval = dataset_train.make_initializable_iterator()
+iterator_eval = dataset_eval.make_initializable_iterator()
 next_element_eval = iterator_eval.get_next()
 
 
